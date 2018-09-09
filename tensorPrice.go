@@ -43,12 +43,17 @@ var (
 )
 
 func main() {
-	http.HandleFunc("/resp", makeResponse)
+	http.HandleFunc("/", makeResponse)
 	http.ListenAndServe(":8080", nil)
 	fmt.Println("Server is running")
 }
 
+func enableCors(w *http.ResponseWriter) {
+	(*w).Header().Set("Access-Control-Allow-Origin", "*")
+}
+
 func makeResponse(w http.ResponseWriter, r *http.Request) {
+	enableCors(&w)
 	resp, header, err := r.FormFile("file")
 	fmt.Println(header)
 	if err != nil {

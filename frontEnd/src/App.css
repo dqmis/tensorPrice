@@ -1,0 +1,71 @@
+.title, .subtitle {
+	text-align: center;
+}
+
+.title {
+	margin: 2rem 0;
+	color: #004c8c;
+	font-weight: 600;
+}
+
+.subtitle {
+	font-size: 1.4rem;
+}
+
+.upload-button {
+	margin-top: 3rem;
+	padding: .8rem 2rem;
+	border: 0;
+	background-color: #0277bd;
+	color: white;
+	font-weight: 600;
+}
+
+.upload-button:hover {
+	cursor: pointer;
+	background-color: #004c8c;
+}
+
+.result-retailer {
+	text-transform: capitalize;
+	text-align: center;
+	font-weight: 600;
+	margin-top: 2rem;
+}
+
+.result-price {
+	text-align: center;
+	font-size: 1.8rem;
+}
+
+.lds-dual-ring {
+  display: inline-block;
+  width: 64px;
+  height: 64px;
+}
+.lds-dual-ring:after {
+  content: " ";
+  display: block;
+  width: 46px;
+  height: 46px;
+	margin: 1px;
+	margin-top: 3rem;
+  border-radius: 50%;
+  border: 5px solid #0277bd;
+  border-color: #0277bd transparent #fff transparent;
+  animation: lds-dual-ring 1.2s linear infinite;
+}
+@keyframes lds-dual-ring {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.error {
+	margin-top: 3rem;
+	font-size: 1.4rem;
+	text-align: center;
+}
