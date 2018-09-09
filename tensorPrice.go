@@ -2,14 +2,15 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/base64"
-	"flag"
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"log"
+	"net/http"
 	"os"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -26,6 +27,11 @@ type Label struct {
 	Probability float32
 }
 
+type Response struct {
+	shop  string
+	price float64
+}
+
 type Labels []Label
 
 func (l Labels) Len() int           { return len(l) }
@@ -38,86 +44,57 @@ var (
 )
 
 func main() {
-	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: %s <path-to-image>\n", filepath.Base(os.Args[0]))
+	if len(os.Args) < 2 {
+		log.Fatal("wrong image url: <img_url>")
+	}
+	fmt.Printf("url: %s", os.Args[1])
+
+	resp, err := http.Get(os.Args[1])
+	if err != nil {
+		log.Fatal("unable to get an image: %v", err)
+	}
+	defer resp.Body.Close()
+
+	byteImg, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Println(err)
 	}
 
-	flag.Parse()
-
-	args := flag.Args()
-	if len(args) == 0 {
-		flag.Usage()
-		os.Exit(1)
+	sendResp := &Response{
+		shop:  runImg(string(byteImg)).Label,
+		price: runText(base64.StdEncoding.EncodeToString(byteImg)),
 	}
 
-	if err := run(args[0]); err != nil {
-		fmt.Fprint(os.Stderr, "%s\n", err.Error())
-		os.Exit(1)
-	}
+	http.HandleFunc("/resp", makeResponse(sendResp))
+	http.ListenAndServe(":8080", nil)
 }
 
-func run(file string) error {
-	ctx := context.Background()
-
-	client, err := google.DefaultClient(ctx, vision.CloudPlatformScope)
+func makeResponse(res http.ResponseWriter, sendResp *Response) {
+	b, err := json.Marshal(sendResp)
 	if err != nil {
-		return err
+		log.Fatal("can not convert to json, %s", err)
+		return
 	}
+	url := "http://localhost:8080/resp"
+	var jsonStr = []byte(b)
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonStr))
+	req.Header.Set("X-Custom-Header", "myvalue")
+	req.Header.Set("Content-Type", "application/json")
 
-	service, err := vision.New(client)
+	client := &http.Client{}
+	resp, err := client.Do(req)
 	if err != nil {
-		return err
+		panic(err)
 	}
+	defer resp.Body.Close()
 
-	b, err := ioutil.ReadFile(file)
-	if err != nil {
-		return err
-	}
+	fmt.Println("response Status:", resp.Status)
+	fmt.Println("response Headers:", resp.Header)
+	body, _ := ioutil.ReadAll(resp.Body)
+	fmt.Println("response Body:", string(body))
+}
 
-	convImg := base64.StdEncoding.EncodeToString(b)
-
-	req := &vision.AnnotateImageRequest{
-		Image: &vision.Image{
-			Content: convImg,
-		},
-		Features: []*vision.Feature{
-			{
-				Type: "DOCUMENT_TEXT_DETECTION",
-			},
-		},
-	}
-
-	batch := &vision.BatchAnnotateImagesRequest{
-		Requests: []*vision.AnnotateImageRequest{req},
-	}
-
-	res, err := service.Images.Annotate(batch).Do()
-	if err != nil {
-		return err
-	}
-
-	re := regexp.MustCompile("([0-9]*[,])?[0-9]+")
-
-	if annotations := res.Responses[0].TextAnnotations; len(annotations) > 0 {
-		text := annotations[0].Description
-
-		//fmt.Printf("Found text: %s\n", text)
-		var arr = re.FindAllString(text, -1)
-		var max float64
-		max = 0
-
-		for _, i := range arr {
-			if j, err := strconv.ParseFloat(strings.Replace(i, ",", ".", -1), 64); err == nil && strings.Contains(i, ",") && strings.Contains(i, "%") == false {
-				if j > max {
-					max = j
-				}
-			}
-		}
-		fmt.Printf("Galutine kaina: %.2f Eur.\n", max)
-	}
-
-	//fmt.Printf("Not found text: %s\n", file)
-
+func runImg(img string) Label {
 	modelGraph, labels, err := loadGraphAndLabels()
 	if err != nil {
 		log.Fatal("unable to load graph and labels: %s", err)
@@ -129,7 +106,7 @@ func run(file string) error {
 	}
 	defer session.Close()
 
-	tensor, err := normalizedImg(b)
+	tensor, err := normalizedImg(img)
 	if err != nil {
 		log.Fatal("unable to normalize img: %s", err)
 	}
@@ -144,15 +121,64 @@ func run(file string) error {
 		log.Fatalf("unable to unference: %s", err)
 	}
 
-	topLabels := getTopFiveLabels(labels, result[0].Value().([][]float32)[0])
-
-	for _, l := range topLabels {
-		fmt.Printf("label: %s, probablity: %.2f%%\n", l.Label, l.Probability*100)
-	}
-	return nil
+	return getLabels(labels, result[0].Value().([][]float32)[0])
 }
 
-func getTopFiveLabels(labels []string, probabil []float32) []Label {
+func runText(img string) float64 {
+	ctx := context.Background()
+
+	client, err := google.DefaultClient(ctx, vision.CloudPlatformScope)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	service, err := vision.New(client)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	req := &vision.AnnotateImageRequest{
+		Image: &vision.Image{
+			Content: img,
+		},
+		Features: []*vision.Feature{
+			{
+				Type: "DOCUMENT_TEXT_DETECTION",
+			},
+		},
+	}
+
+	batch := &vision.BatchAnnotateImagesRequest{
+		Requests: []*vision.AnnotateImageRequest{req},
+	}
+
+	res, err := service.Images.Annotate(batch).Do()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	re := regexp.MustCompile("([0-9]*[,])?[0-9]+")
+
+	if annotations := res.Responses[0].TextAnnotations; len(annotations) > 0 {
+		text := annotations[0].Description
+
+		var arr = re.FindAllString(text, -1)
+		var max float64
+		max = 0
+
+		for _, i := range arr {
+			if j, err := strconv.ParseFloat(strings.Replace(i, ",", ".", -1), 64); err == nil && strings.Contains(i, ",") && strings.Contains(i, "%") == false {
+				if j > max {
+					max = j
+				}
+			}
+		}
+		return max
+	}
+	return 0
+}
+
+func getLabels(labels []string, probabil []float32) Label {
 	var results []Label
 	for i, p := range probabil {
 		if i >= len(labelsFile) {
@@ -164,11 +190,11 @@ func getTopFiveLabels(labels []string, probabil []float32) []Label {
 		})
 	}
 	sort.Sort(Labels(results))
-	return results
+	return results[0]
 }
 
-func normalizedImg(body []byte) (*tf.Tensor, error) {
-	t, err := tf.NewTensor(string(body[:]))
+func normalizedImg(img string) (*tf.Tensor, error) {
+	t, err := tf.NewTensor(img)
 	if err != nil {
 		return nil, err
 	}
