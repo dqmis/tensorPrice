@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -28,8 +27,8 @@ type Label struct {
 }
 
 type Response struct {
-	shop  string
-	price float64
+	Shop  string
+	Price float64
 }
 
 type Labels []Label
@@ -44,54 +43,38 @@ var (
 )
 
 func main() {
-	if len(os.Args) < 2 {
-		log.Fatal("wrong image url: <img_url>")
-	}
-	fmt.Printf("url: %s", os.Args[1])
+	http.HandleFunc("/resp", makeResponse)
+	http.ListenAndServe(":8080", nil)
+	fmt.Println("Server is running")
+}
 
-	resp, err := http.Get(os.Args[1])
+func makeResponse(w http.ResponseWriter, r *http.Request) {
+	//resp, err := http.Get("https://i.imgur.com/qNjlnMy.jpg")
+	resp, header, err := r.FormFile("file")
+	fmt.Println(header)
 	if err != nil {
 		log.Fatal("unable to get an image: %v", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Close()
 
-	byteImg, err := ioutil.ReadAll(resp.Body)
+	byteImg, err := ioutil.ReadAll(resp)
 	if err != nil {
 		fmt.Println(err)
 	}
 
-	sendResp := &Response{
-		shop:  runImg(string(byteImg)).Label,
-		price: runText(base64.StdEncoding.EncodeToString(byteImg)),
+	sendResp := Response{
+		runImg(string(byteImg)).Label,
+		runText(base64.StdEncoding.EncodeToString(byteImg)),
 	}
 
-	http.HandleFunc("/resp", makeResponse(sendResp))
-	http.ListenAndServe(":8080", nil)
-}
-
-func makeResponse(res http.ResponseWriter, sendResp *Response) {
-	b, err := json.Marshal(sendResp)
+	js, err := json.Marshal(sendResp)
 	if err != nil {
-		log.Fatal("can not convert to json, %s", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	url := "http://localhost:8080/resp"
-	var jsonStr = []byte(b)
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonStr))
-	req.Header.Set("X-Custom-Header", "myvalue")
-	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		panic(err)
-	}
-	defer resp.Body.Close()
-
-	fmt.Println("response Status:", resp.Status)
-	fmt.Println("response Headers:", resp.Header)
-	body, _ := ioutil.ReadAll(resp.Body)
-	fmt.Println("response Body:", string(body))
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(js)
 }
 
 func runImg(img string) Label {
