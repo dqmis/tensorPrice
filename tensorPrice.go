@@ -49,7 +49,6 @@ func main() {
 }
 
 func makeResponse(w http.ResponseWriter, r *http.Request) {
-	//resp, err := http.Get("https://i.imgur.com/qNjlnMy.jpg")
 	resp, header, err := r.FormFile("file")
 	fmt.Println(header)
 	if err != nil {
