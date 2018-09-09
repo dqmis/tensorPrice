@@ -6,6 +6,9 @@ This is my attempt to retrain TensorFlow Image Classifier. I wanted to make a au
 
 I want to increase retailer detection accurancy but it will take some time to collect more data to train my model on.
 
+Processing example:
+![](https://i.imgur.com/85Sl3QA.jpg)
+
 Known issues:
 * Low retailer detection accurancy
 * OCR detects and exports the biggest number it finds in the receipt ignoring other valuable information.
