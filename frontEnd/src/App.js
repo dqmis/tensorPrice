@@ -22,7 +22,7 @@ class App extends React.Component {
 		formData.append('file', this.state.selectedFile, this.state.selectedFile.name)
 
 		const self = this;
-		axios.post('http://localhost:8080', formData)
+		axios.post('http://localhost:8080/resolve', formData)
 			.then(function(resp) {
 				const retailer = resp.data.Shop;
 				const price = resp.data.Price;

@@ -42,7 +42,8 @@ var (
 )
 
 func main() {
-	http.HandleFunc("/", makeResponse)
+	http.Handle("/", http.StripPrefix("/", http.FileServer(http.Dir("./build"))))
+	http.HandleFunc("/resolve", makeResponse)
 	http.ListenAndServe(":8080", nil)
 }
 
