@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -45,7 +44,6 @@ var (
 func main() {
 	http.HandleFunc("/", makeResponse)
 	http.ListenAndServe(":8080", nil)
-	fmt.Println("Server is running")
 }
 
 func enableCors(w *http.ResponseWriter) {
@@ -55,21 +53,32 @@ func enableCors(w *http.ResponseWriter) {
 func makeResponse(w http.ResponseWriter, r *http.Request) {
 	enableCors(&w)
 	resp, header, err := r.FormFile("file")
-	fmt.Println(header)
+	_ = header
 	if err != nil {
-		log.Fatal("unable to get an image: %v", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 	defer resp.Close()
 
 	byteImg, err := ioutil.ReadAll(resp)
 	if err != nil {
-		fmt.Println(err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
-	sendResp := Response{
-		runImg(string(byteImg)).Label,
-		runText(base64.StdEncoding.EncodeToString(byteImg)),
+	retailer, err := runImg(string(byteImg))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
+
+	price, err := runText(base64.StdEncoding.EncodeToString(byteImg))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	sendResp := Response{retailer.Label, price}
 
 	js, err := json.Marshal(sendResp)
 	if err != nil {
@@ -81,21 +90,22 @@ func makeResponse(w http.ResponseWriter, r *http.Request) {
 	w.Write(js)
 }
 
-func runImg(img string) Label {
+func runImg(img string) (Label, error) {
+	empty := Label{}
 	modelGraph, labels, err := loadGraphAndLabels()
 	if err != nil {
-		log.Fatal("unable to load graph and labels: %s", err)
+		return empty, err
 	}
 
 	session, err := tf.NewSession(modelGraph, nil)
 	if err != nil {
-		log.Fatal("unable to start a session: %s", err)
+		return empty, err
 	}
 	defer session.Close()
 
 	tensor, err := normalizedImg(img)
 	if err != nil {
-		log.Fatal("unable to normalize img: %s", err)
+		return empty, err
 	}
 
 	result, err := session.Run(map[tf.Output]*tf.Tensor{
@@ -105,13 +115,13 @@ func runImg(img string) Label {
 			modelGraph.Operation("final_result").Output(0),
 		}, nil)
 	if err != nil {
-		log.Fatalf("unable to unference: %s", err)
+		return empty, err
 	}
 
-	return getLabels(labels, result[0].Value().([][]float32)[0])
+	return getLabels(labels, result[0].Value().([][]float32)[0]), nil
 }
 
-func runText(img string) float64 {
+func runText(img string) (float64, error) {
 	ctx := context.Background()
 
 	client, err := google.DefaultClient(ctx, vision.CloudPlatformScope)
@@ -121,7 +131,7 @@ func runText(img string) float64 {
 
 	service, err := vision.New(client)
 	if err != nil {
-		log.Fatal(err)
+		return 0, err
 	}
 
 	req := &vision.AnnotateImageRequest{
@@ -141,7 +151,7 @@ func runText(img string) float64 {
 
 	res, err := service.Images.Annotate(batch).Do()
 	if err != nil {
-		log.Fatal(err)
+		return 0, err
 	}
 
 	re := regexp.MustCompile("([0-9]*[,])?[0-9]+")
@@ -155,14 +165,14 @@ func runText(img string) float64 {
 
 		for _, i := range arr {
 			if j, err := strconv.ParseFloat(strings.Replace(i, ",", ".", -1), 64); err == nil && strings.Contains(i, ",") && strings.Contains(i, "%") == false {
-				if j > max {
+				if j > max && j != 21 {
 					max = j
 				}
 			}
 		}
-		return max
+		return max, nil
 	}
-	return 0
+	return 0, nil
 }
 
 func getLabels(labels []string, probabil []float32) Label {
